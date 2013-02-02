@@ -1,0 +1,1300 @@
+<?php
+/**
+ *
+ * @file Grade book module for Enresz György Általános Iskola - Felcsút
+ *
+ */
+
+/**
+ * Implements hook_menu().
+ */
+
+function endresz_gradebook_menu()
+{
+  $items = array();
+
+  $items['gradebook/classes'] = array(
+    'title' => 'Gradebook',
+    'description' => 'List of gradebooks',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_edit_grades'),
+    'page callback' => 'endresz_gradebook_classes',
+    'page arguments' => array(),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['gradebook/class/%'] = array(
+    'title' => 'Title',
+    'description' => 'Description',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_edit_grades'),
+    'page callback' => 'endresz_gradebook_class',
+    'page arguments' => array(2),
+    'type' => MENU_CALLBACK,
+  );
+  $items['gradebook/subject/%/%'] = array(
+    'title' => 'Grades',
+    'description' => 'Grades',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_edit_grades'),
+    'page callback' => 'endresz_gradebook_subject_grades',
+    'page arguments' => array(2, 3),
+    'type' => MENU_CALLBACK,
+  );
+  $items['gradebook/student/%'] = array(
+    'title' => 'Student',
+    'description' => 'Student grades',
+    'access callback' => 'endresz_gradebook_student_gardes_access',
+    'page callback' => 'endresz_gradebook_student',
+    'page arguments' => array(2),
+  );
+  $items['gradebook/student/%/grades'] = array(
+    'title' => 'Grades',
+    'access callback' => 'endresz_gradebook_student_gardes_access',
+    'weight' => 5,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['gradebook/student/%/messages'] = array(
+    'title' => 'Messages',
+    'description' => 'The student recieved messages',
+    'access callback' => 'endresz_gradebook_student_gardes_access',
+    'page callback' => 'endresz_gradebook_student_messages',
+    'page arguments' => array(2),
+    'weight' => 10,
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['gradebook/student/%/%/send'] = array(
+    'title' => 'Send grades',
+    'description' => 'Send student\'s grades',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_edit_grades'),
+    'page callback' => 'endresz_gradebook_send_grades',
+    'page arguments' => array(2, 3),
+    'type' => MENU_CALLBACK,
+  );
+  $items['gradebook/student/%/%/%'] = array(
+    'title' => 'Title',
+    'description' => 'Description',
+    'access callback' => 'endresz_gradebook_student_gardes_delete',
+    'page callback' => 'endresz_gradebook_delete_garde',
+    'page arguments' => array(3, 4),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/gradebook'] = array(
+    'title' => 'Administer gradebook',
+    'description' => 'Administer gradebook',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_administer'),
+    'page callback' => 'endresz_gradebook_admin',
+    'file' => 'endresz_gradebook.admin.inc',
+    'menu_name' => 'management',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/gradebook/semester'] = array(
+    'title' => 'Set active semester',
+    'description' => 'Set active semester',
+    'access callback' => 'user_access',
+    'access arguments' => array('endresz_gradebook_administer'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('endresz_gradebook_set_semester_form'),
+    'file' => 'endresz_gradebook.admin.inc',
+    'menu_name' => 'management',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function endresz_gradebook_block_info()
+{
+  $return = array();
+
+  $return['parent'] = array(
+    'info' => t('Gradebook info for parents'),
+    'cache' => DRUPAL_CACHE_GLOBAL,
+  );
+
+  $return['teacher'] = array(
+    'info' => t('Gradebooks for teachers'),
+    'cache' => DRUPAL_CACHE_GLOBAL,
+  );
+  return $return;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function endresz_gradebook_block_view($delta = '')
+{
+  $block = array();
+
+  switch ($delta) {
+    case 'parent':
+      $block['subject'] = t('Gradebook');
+      $block['content'] = endresz_gardebook_get_children();
+    break;
+    case 'teacher':
+      $block['subject'] = t('List of gradebooks');
+      $block['content'] = endresz_gardebook_get_gradebooks();
+    break;
+
+  }
+
+  return $block;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function endresz_gradebook_permission()
+{
+  $return = array();
+
+  $return['endresz_gradebook_administer'] = array(
+    'title' => t('Administer endresz gardebook'),
+    'description' => t('Administer endresz gardebook'),
+  );
+
+  $return['endresz_gradebook_edit_grades'] = array(
+    'title' => t('Edit grades'),
+    'description' => t('The user can add, edit and delete grades.'),
+  );
+  return $return;
+}
+
+
+/**
+ * @return html list of classes
+ */
+
+function endresz_gradebook_classes()
+{
+  $classes_term = taxonomy_vocabulary_machine_name_load('osztalyok');
+  $classes = taxonomy_get_tree($classes_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+  $items = array();
+  foreach ($classes as $class) {
+    $items[] = l($class->name, 'gradebook/class/' . $class->tid);
+  }
+  return theme('item_list', array('items' => $items));
+}
+
+/**
+ * @param $tid - class id
+ * @return string HTML output with students and subjects of the class
+ */
+function endresz_gradebook_class($tid)
+{
+  $output = '';
+  $class = taxonomy_term_load($tid);
+  $class_wrapper = entity_metadata_wrapper('taxonomy_term', $class);
+
+
+  drupal_set_title(t('The gradebook of @class', array('@class' => $class_wrapper->name->value())));
+
+  //load osztalyfonok
+  $query = new EntityFieldQuery;
+
+  $result = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'tanar')
+    ->fieldCondition('field_osztalyfonok', 'tid', $tid, '=')
+    ->execute();
+  if (isset($result['profile2'])) {
+    $output .= t('Osztályfőnök: ');
+    foreach ($result['profile2'] as $key => $value) {
+      $osztalyfonok_profile = profile2_load($key);
+      $osztalyfonok = user_load($osztalyfonok_profile->uid);
+      $osztalyfonok_name = endresz_gardebook_get_full_name($osztalyfonok_profile->uid);
+      $output .= $osztalyfonok_name . ' ';
+    }
+  }
+
+  //load students
+  $query = new EntityFieldQuery;
+
+  $result = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'diak')
+    ->fieldCondition('field_osztaly', 'tid', $tid, '=')
+    ->execute();
+
+  $header = array(t('Student'), t('Sending date of the grades'), t('Sent grades'));
+
+  $rows = array();
+  if (isset($result['profile2'])) {
+    foreach ($result['profile2'] as $key => $value) {
+      $student_profile = profile2_load($key);
+      $student = user_load($student_profile->uid);
+      $grades_sent_date = endresz_gradebook_grades_sent_date($student->uid);
+      $rows[] = array(l(endresz_gardebook_get_full_name($student->uid), 'gradebook/student/' . $student->uid . '/grades'), $grades_sent_date, l('send', 'gradebook/student/' . $tid . '/' . $student_profile->uid . '/send'));
+    }
+  }
+  //display list of students
+  $output .= theme('table', array('header' => $header, 'rows' => $rows, 'title' => t('Students')));
+
+
+  $subjects = array();
+  foreach ($class_wrapper->field_tantargyak->value() as $subject) {
+    $subjects[] = l($subject->name, 'gradebook/subject/' . $class_wrapper->tid->value() . '/' . $subject->tid);
+  }
+  //display list of subjects
+  $output .= theme('item_list', array('items' => $subjects, 'title' => t('Subjects')));
+
+  return $output;
+}
+
+function endresz_gradebook_grades_sent_date($student_id) {
+  $select = db_select('endresz_grades_message', 'egm')
+    ->fields('egm', array('sending_date'))  
+    ->condition('student_id', $student_id, '=')
+    ->orderBy('sending_date', 'DESC')
+    ->range(0,1)
+    ->execute()->fetchAssoc();
+  return  isset($select['sending_date']) ? date('Y/m/d', $select['sending_date']) : t('The grades hava not been sent yet.');
+}
+
+
+
+/**
+ * @param $user_id - student_id
+ * @return string - HTML output with grades and grades add form
+ */
+
+function endresz_gradebook_student($user_id)
+{
+  global $user;
+
+  $output = '';
+  $name = endresz_gardebook_get_full_name($user_id);
+
+
+  //load student profile
+  $user_profile = profile2_load_by_user($user_id, $type_name = NULL);
+  if (isset($user_profile['diak'])) {
+    $user_diak_wrapper = entity_metadata_wrapper('profile2', $user_profile['diak']);
+    $class_tid = $user_diak_wrapper->field_osztaly->tid->value();
+    $class_term = taxonomy_term_load($class_tid);
+    if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+      $output .= l('<h2 class="class-name">' . $class_term->name . '</h2  >', 'gradebook/class/' . $class_tid, array('html' => true));
+    } else {
+      $output .= '<h2 class="class-name">' . $class_term->name . '</h2  >';
+    }
+
+    $form = drupal_get_form('endresz_gradebook_student_grades_form', $user_id, $class_term);
+    $output .= drupal_render($form);
+
+
+  }
+
+  drupal_set_title(check_plain($name));
+
+  return $output;
+}
+
+/**
+ *
+ */
+function endresz_gardebook_get_full_name($uid) {
+  $name = '';
+
+  $account = user_load($uid);
+  $name = $account->name;
+
+
+  //load user profile
+  $user_profile = profile2_load_by_user($uid, $type_name = NULL);
+
+  if (isset($user_profile['main'])) {
+    $user_main_wrapper = entity_metadata_wrapper('profile2', $user_profile['main']);
+    $name = $user_main_wrapper->field_vezeteknev->value() . ' ' . $user_main_wrapper->field_keresztnev->value();
+  }
+  
+  return $name;
+}
+
+
+
+
+
+/**
+ * Students grade add form
+ */
+
+function endresz_gradebook_student_grades_form($form, &$form_state, $uid, $class_term)
+{
+  global $user;
+
+  $grades_list = array(
+    '0' => 'no grade',
+    '1' => '1',
+    '2' => '2',
+    '3' => '3',
+    '4' => '4',
+    '5' => '5'
+  );
+  $semester_id = isset($form_state['values']['semester_select']) ? $form_state['values']['semester_select'] : variable_get('active_semester_id', 0);
+
+
+  $term_wrapper = entity_metadata_wrapper('taxonomy_term', $class_term);
+
+  $grade_type_term = taxonomy_vocabulary_machine_name_load('grade_type');
+  $grade_types = taxonomy_get_tree($grade_type_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+  $grade_type_options = array();
+  foreach ($grade_types as $grade_type) {
+    $grade_type_options[$grade_type->tid] = $grade_type->name;
+  }
+
+  $tanev_felev_term = taxonomy_vocabulary_machine_name_load('tanev_felev');
+  $tanev_felev = taxonomy_get_tree($tanev_felev_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+  $tanev_felev_options = array();
+  foreach ($tanev_felev as $tf) {
+    $tanev_felev_options[$tf->tid] = $tf->name;
+  }
+
+
+  $form['uid'] = array(
+    '#type' => 'value',
+    '#value' => $uid
+  );
+
+  $form['#tree'] = TRUE;
+
+  $form['semester_select'] = array(
+    '#type' => 'select',
+    '#title' => t('Semester'),
+    '#options' => $tanev_felev_options,
+    '#default_value' => variable_get('active_semester_id', 0),
+    '#ajax' => array(
+      'callback' => 'endresz_gradebook_select_semester_callback',
+      'wrapper' => 'semester',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),
+  );
+
+
+  $form['semester'] = array(
+    '#type' => 'container',
+    '#prefix' => '<div id="semester">',
+    '#suffix' => '</div>',
+  );
+
+  foreach ($term_wrapper->field_tantargyak->value() as $targy) {
+
+    $form['semester']['subject-' . $targy->tid] = array(
+      '#type' => 'fieldset',
+      '#title' => check_plain($targy->name),
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+    );
+
+
+    // Build the fieldset with the proper number of names. We'll use
+    // $form_state['num_names'] to determine the number of textfields to build.
+    if (empty($form_state['semester']['subject-' . $targy->tid]['num_names'])) {
+      $form_state['semester']['subject-' . $targy->tid]['num_names'] = 1;
+    }
+
+    $form['semester']['subject-' . $targy->tid]['grades'] = array(
+      '#type' => 'markup',
+      '#markup' => endresz_gardebook_get_gardes($uid, $targy->tid, $semester_id),
+    );
+
+    if (endresz_gardebook_content_access(array('tanárok'))) {
+      $form['semester']['subject-' . $targy->tid]['container'] = array(
+        '#type' => 'container',
+        '#prefix' => '<div id="add-more-' . $targy->tid . '">',
+        '#suffix' => '</div>',
+      );
+
+
+      for ($i = 0; $i < $form_state['semester']['subject-' . $targy->tid]['num_names']; $i++) {
+
+        $form['semester']['subject-' . $targy->tid]['container'][$i]['tid'] = array(
+          '#type' => 'value',
+          '#value' => $targy->tid,
+        );
+        $form['semester']['subject-' . $targy->tid]['container'][$i]['grade'] = array(
+          '#type' => 'select',
+          '#options' => $grades_list,
+        );
+        $form['semester']['subject-' . $targy->tid]['container'][$i]['subject'] = array(
+          '#type' => 'textfield',
+          '#size' => 20,
+          '#maxlength' => 128,
+        );
+        $form['semester']['subject-' . $targy->tid]['container'][$i]['type'] = array(
+          '#type' => 'select',
+          '#options' => $grade_type_options,
+        );
+        $form['semester']['subject-' . $targy->tid]['container'][$i]['created'] = array(
+          '#type' => 'date_popup',
+          '#date_format' => 'm/d/Y',
+        );
+      }
+    }
+    if (endresz_gardebook_content_access(array('tanárok'))) {
+      $form['semester']['subject-' . $targy->tid]['add-more'] = array(
+        '#type' => 'submit',
+        '#value' => t('Add more'),
+        '#submit' => array('endresz_gradebook_add_more_add_one'),
+        '#name' => 'add-more-' . $targy->tid,
+        '#attributes' => array(
+          'ref' => $targy->tid,
+        ),
+        '#ajax' => array(
+          'callback' => 'endresz_gradebook_add_more',
+          'wrapper' => 'add-more-' . $targy->tid,
+          'method' => 'replace',
+          'effect' => 'fade',
+        ),
+      );
+    }
+  }
+  if (endresz_gardebook_content_access(array('tanárok'))) {
+    $form['semester']['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Upload grades'),
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Add  more grade fields callback
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function endresz_gradebook_add_more($form, &$form_state)
+{
+  if (isset($form['semester']['subject-' . $form_state['clicked_button']['#attributes']['ref']])) {
+    return $form['semester']['subject-' . $form_state['clicked_button']['#attributes']['ref']]['container'];
+  }
+
+  if (isset($form['semester']['student-' . $form_state['clicked_button']['#attributes']['ref']])) {
+    return $form['semester']['student-' . $form_state['clicked_button']['#attributes']['ref']]['container'];
+  }
+}
+
+/**
+ * Add more grade field ajax submit
+ *
+ * @param $form
+ * @param $form_state
+ */
+function endresz_gradebook_add_more_add_one($form, &$form_state)
+{
+  if (isset($form_state['semester']['subject-' . $form_state['clicked_button']['#attributes']['ref']])) {
+    $form_state['semester']['subject-' . $form_state['clicked_button']['#attributes']['ref']]['num_names']++;
+  }
+
+  if (isset($form_state['semester']['student-' . $form_state['clicked_button']['#attributes']['ref']])) {
+    $form_state['semester']['student-' . $form_state['clicked_button']['#attributes']['ref']]['num_names']++;
+  }
+
+  $form_state['rebuild'] = TRUE;
+
+}
+
+/**
+ * Submit function for add grade form
+ *
+ * @param $form
+ * @param $form_state
+ */
+
+function endresz_gradebook_student_grades_form_submit(&$form, &$form_state)
+{
+  $count = 0;
+  $uid = $form_state['values']['uid'];
+  foreach ($form_state['values']['semester'] as $key => $values) {
+    if (is_array($values['container'])) {
+      foreach ($values['container'] as $value) {
+        if ($value['grade'] != 0) {
+          $value['uid'] = $uid;
+          endresz_gradebook_insert_grade($value);
+          $count++;
+        }
+      }
+    }
+  }
+
+  drupal_set_message(t('You uploaded %num grades', array('%num' => $count)));
+}
+
+/**
+ * Inser grades
+ *
+ * @param $values array of inserted values
+ */
+
+function endresz_gradebook_insert_grade($values)
+{
+  global $user;
+  $student_profile = profile2_load_by_user($values['uid'], $type_name = NULL);
+
+  $student_wrapper = entity_metadata_wrapper('profile2', $student_profile['diak']);
+  $class_tid = $student_wrapper->field_osztaly->tid->value();
+
+  $grade_id = db_insert('endresz_grades')
+    ->fields(array(
+    'grade' => $values['grade'],
+    'title' => $values['subject'],
+    'type' => $values['type'],
+    'student_id' => $values['uid'],
+    'class_id' => $class_tid,
+    'subject_id' => $values['tid'],
+    'semester_id' => variable_get('active_semester_id', 0),
+    'teacher_id' => $user->uid,
+    'status' => 1,
+    'created' => isset($values['created']) ? strtotime($values['created']) : time(),
+  ))
+    ->execute();
+}
+
+
+/**
+ * HTML table with student's grades
+ *
+ * @param $student_id
+ * @param $subject_id
+ * @return mixed|string
+ */
+function endresz_gardebook_get_gardes($student_id, $subject_id, $semester_id)
+{
+  global $user;
+  $header = array(t('Grade'), t('Title'), t('Type'), t('Date'));
+  if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+    $header = array(t('Grade'), t('Title'), t('Type'), t('Date'), t('Delete'));
+  }
+
+
+  $results = db_select('endresz_grades', 'eg')
+    ->fields('eg')
+    ->condition('student_id', $student_id, '=')
+    ->condition('subject_id', $subject_id, '=')
+    ->condition('status', 1, '=')
+    ->condition('semester_id', $semester_id, '=')
+    ->execute()
+    ->fetchAll();
+  $rows = array();
+  foreach ($results as $result) {
+    $term = taxonomy_term_load($result->type);
+    $grade_type_wrapper = entity_metadata_wrapper('taxonomy_term', $term);
+    $rgb = $grade_type_wrapper->field_color->value();
+
+
+    $grade = '<span style="color: ' . $rgb . '">' . check_plain($result->grade) . '</span>';
+    $title = '<span style="color: ' . $rgb . '">' . check_plain($result->title) . '</span>';
+    $type = '<span style="color: ' . $rgb . '">' . check_plain($term->name) . '</span>';
+    $created = '<span style="color: ' . $rgb . '">' . date('Y/m/d', $result->created) . '</span>';
+    if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+      $path = isset($_GET['q']) ? $_GET['q'] : '<front>';
+      $link = 'gradebook/student/' . $student_id . '/delete/' . $result->grade_id;
+      $delete_grade = l('Delete', $link);
+      $rows[] = array($grade, $title, $type, $created, $delete_grade);
+    } else {
+      $rows[] = array($grade, $title, $type, $created);
+    }
+
+  }
+  ;
+
+  return theme('table', array('header' => $header, 'rows' => $rows, 'empty' => t('You have no grades for this subject.')));
+  ;
+}
+
+/**
+ * Grade delete callback function
+ *
+ * @param $action
+ * @param $grade_id
+ */
+function endresz_gradebook_delete_garde($action, $grade_id)
+{
+  global $user;
+  if ($action == 'delete' && is_numeric($grade_id)) {
+    if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+      $update = db_update('endresz_grades')
+        ->fields(array(
+        'status' => 0,
+      ))
+        ->condition('grade_id', $grade_id)
+        ->execute();
+      drupal_set_message(t('The grade has been deleted'), 'status');
+    } else {
+      drupal_set_message(t('You are not authorizated to delete grades'), 'error');
+    }
+  }
+  return drupal_goto('gradebook/student/' . arg(2) . '/grades');
+
+
+}
+
+/**
+ * HTML output of student's messages and add message form
+ *
+ * @param $student_id
+ * @return string
+ */
+function endresz_gradebook_student_messages($student_id) {
+  global $user;
+
+  $output = '';
+  $name = endresz_gardebook_get_full_name($student_id);
+
+
+  //load student profile
+  $user_profile = profile2_load_by_user($student_id, $type_name = NULL);
+
+  if (isset($user_profile['diak'])) {
+    $user_diak_wrapper = entity_metadata_wrapper('profile2', $user_profile['diak']);
+    $class_tid = $user_diak_wrapper->field_osztaly->tid->value();
+    $class_term = taxonomy_term_load($class_tid);
+    if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+      $output .= l('<h2 class="class-name">' . $class_term->name . '</h2  >', 'gradebook/class/' . $class_tid, array('html' => true));
+    } else {
+      $output .= '<h2 class="class-name">' . $class_term->name . '</h2  >';
+    }
+
+
+    $message_form = drupal_get_form('endresz_gradebook_student_messages_form', $student_id);
+    $output .= drupal_render($message_form);
+
+  }
+
+  drupal_set_title(check_plain($name));
+
+  return $output;
+}
+
+/**
+ * Add message form
+ *
+ * @param $form
+ * @param $form_state
+ * @param $student_id
+ * @return array
+ */
+function endresz_gradebook_student_messages_form($form, &$form_state, $student_id)
+{
+  global $user;
+  $form = array();
+
+  $semester_id = isset($form_state['values']['semester_select']) ? $form_state['values']['semester_select'] : variable_get('active_semester_id', 0);
+
+  $message_type_term = taxonomy_vocabulary_machine_name_load('message_type');
+  $message_types = taxonomy_get_tree($message_type_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+  $message_type_options = array();
+  foreach ($message_types as $message_type) {
+    $message_type_options[$message_type->tid] = $message_type->name;
+  }
+
+
+  $tanev_felev_term = taxonomy_vocabulary_machine_name_load('tanev_felev');
+  $tanev_felev = taxonomy_get_tree($tanev_felev_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+  $tanev_felev_options = array();
+  foreach ($tanev_felev as $tf) {
+    $tanev_felev_options[$tf->tid] = $tf->name;
+  }
+
+  $form['student_id'] = array(
+    '#type' => 'value',
+    '#value' => $student_id
+  );
+
+  $form['semester_select'] = array(
+    '#type' => 'select',
+    '#title' => t('Semester'),
+    '#options' => $tanev_felev_options,
+    '#default_value' => variable_get('active_semester_id', 0),
+    '#ajax' => array(
+      'callback' => 'endresz_gradebook_select_semester_callback',
+      'wrapper' => 'semester',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),
+  );
+
+
+  $form['semester'] = array(
+    '#type' => 'container',
+    '#prefix' => '<div id="semester">',
+    '#suffix' => '</div>',
+  );
+
+  $form['semester']['messages'] = array(
+    '#type' => 'markup',
+    '#markup' => endresz_gradebook_get_messages($student_id, $semester_id),
+  );
+  if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+    $form['new_message'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('New message'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+    );
+    $form['new_message']['title'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Subject'),
+      '#size' => 60,
+      '#maxlength' => 128,
+      '#required' => TRUE,
+    );
+    $form['new_message']['message_type'] = array(
+      '#type' => 'select',
+      '#title' => t('Message type'),
+      '#options' => $message_type_options,
+      '#required' => TRUE,
+    );
+    $form['new_message']['created'] = array(
+      '#type' => 'date_popup',
+      '#date_format' => 'm/d/Y',
+    );
+    $form['new_message']['message'] = array(
+      '#title' => t('Message'),
+      '#type' => 'textarea',
+      '#required' => TRUE,
+      '#description' => t('The message sent to the student and his/her parents'),
+    );
+    $form['new_message']['send'] = array(
+      '#type' => 'submit',
+      '#value' => t('Send'),
+    );
+  }
+
+
+  return $form;
+}
+
+
+/**
+ * Submit callback for add message form.
+ */
+function endresz_gradebook_student_messages_form_submit(&$form, &$form_state)
+{
+  global $user;
+  $student_profile = profile2_load_by_user($form_state['values']['student_id'], $type_name = NULL);
+
+  $student_wrapper = entity_metadata_wrapper('profile2', $student_profile['diak']);
+  $class_tid = $student_wrapper->field_osztaly->tid->value();
+
+  $grade_id = db_insert('endresz_message')
+    ->fields(array(
+    'student_id' => $form_state['values']['student_id'],
+    'title' => $form_state['values']['title'],
+    'message' => $form_state['values']['message'],
+    'teacher_id' => $user->uid,
+    'type' => $form_state['values']['message_type'],
+    'semester_id' => variable_get('active_semester_id', 0),
+    'created' => isset($values['created']) ? strtotime($values['created']) : time(),
+  ))
+    ->execute();
+
+  drupal_set_message(t('The %title message has been created', array('%title' => $form_state['values']['title'])), 'status');
+
+
+  $mailto = 'minarikede@gmail.com';  
+  $mailfrom ='admin@endresz.com';
+  $params['subject'] = $form_state['values']['title'];
+  $params['body'] = $form_state['values']['message'];
+  if (drupal_mail('endresz_gradebook', 'gradebook_notice', $mailto, language_default(), $params, $mailfrom, TRUE)) {
+    drupal_set_message(t('The message was sent successfully!!!'));
+  }
+  else {
+    drupal_set_message(t('<font color="red">Error occured while sending your mail!!!</font>'));
+  }
+
+}
+
+/**
+ * HTML table output with student's message
+ *
+ * @param $student_id
+ * @param $semester_id
+ * @return mixed|string
+ */
+function endresz_gradebook_get_messages($student_id, $semester_id)
+{
+  global $user;
+  $name = endresz_gardebook_get_full_name($student_id);
+  $header = array(t('Title'), t('Type'), t('Sent from'), t('Date'));
+
+
+  $results = db_select('endresz_message', 'em')
+    ->fields('em')
+    ->condition('student_id', $student_id, '=')
+    ->condition('semester_id', $semester_id, '=')
+    ->execute()
+    ->fetchAll();
+  $rows = array();
+  foreach ($results as $result) {
+    $term = taxonomy_term_load($result->type);
+    $message_type_wrapper = entity_metadata_wrapper('taxonomy_term', $term);
+    $rgb = $message_type_wrapper->field_color->value();
+
+    //load teacher profile
+    $teacher_profile = profile2_load_by_user($user->uid, $type_name = NULL);
+
+    $title = '<span style="color: ' . $rgb . '">' . check_plain($result->title) . '</span>';
+    $type = '<span style="color: ' . $rgb . '">' . check_plain($term->name) . '</span>';
+    $created = '<span style="color: ' . $rgb . '">' . date('Y/m/d', $result->created) . '</span>';
+
+    $rows[] = array($title, $type, $name, $created);
+  }
+
+  return theme('table', array('header' => $header, 'rows' => $rows, 'empty' => t('You have no message for this semester')));
+  ;
+}
+
+/**
+ * alter semester callback
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function endresz_gradebook_select_semester_callback($form, &$form_state) {
+  return $form['semester'];
+}
+
+/**
+ * Add grade form with grouped subjects
+ *
+ * @param $class_id
+ * @param $subject_id
+ * @return string
+ */
+function endresz_gradebook_subject_grades($class_id, $subject_id) {
+  $output = '';
+
+  $subject = taxonomy_term_load($subject_id);
+  drupal_set_title($subject->name);
+
+  $class = taxonomy_term_load($class_id);
+  $output .= l('<h3>' . $class->name . '</h3>', 'gradebook/class/' . $class_id, array('html' => true));
+
+  //load osztalyfonok
+  $query = new EntityFieldQuery;
+  $result = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'tanar')
+    ->fieldCondition('field_osztalyfonok', 'tid', $class_id, '=')
+    ->execute();
+  if (isset($result['profile2'])) {
+    $output .= '<p>' . t('Osztályfőnök: ');
+    foreach ($result['profile2'] as $key => $value) {
+      $osztalyfonok_profile = profile2_load($key);
+      $osztalyfonok = user_load($osztalyfonok_profile->uid);
+      $osztalyfonok_name = endresz_gardebook_get_full_name($osztalyfonok_profile->uid);
+      $output .= $osztalyfonok_name . ' ';
+    }
+    $output .= '</p>';
+  }
+
+
+  $f = drupal_get_form('endresz_gradebook_subject_grades_form', $class_id, $subject_id);
+  $output .= drupal_render($f);
+
+  return $output;
+}
+
+
+/**
+ * Add grades form
+ *
+ */
+
+function endresz_gradebook_subject_grades_form($form, &$form_state, $class_id, $subject_id)
+{
+
+  $grades_list = array(
+    '0' => 'no grade',
+    '1' => '1',
+    '2' => '2',
+    '3' => '3',
+    '4' => '4',
+    '5' => '5'
+  );
+  $semester_id = isset($form_state['values']['semester_select']) ? $form_state['values']['semester_select'] : variable_get('active_semester_id', 0);
+
+
+  //load students
+  $query = new EntityFieldQuery;
+
+  $result = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'diak')
+    ->fieldCondition('field_osztaly', 'tid', $class_id, '=')
+    ->execute();
+
+  $students = array();
+  if (isset($result['profile2'])) {
+    foreach ($result['profile2'] as $key => $value) {
+      $student_profile = profile2_load($key);
+      $student = user_load($student_profile->uid);
+      $students[] = array('uid' => $student_profile->uid, 'name' => $student->name);
+    }
+  }
+
+  $grade_type_term = taxonomy_vocabulary_machine_name_load('grade_type');
+  $grade_types = taxonomy_get_tree($grade_type_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+  $grade_type_options = array();
+  foreach ($grade_types as $grade_type) {
+    $grade_type_options[$grade_type->tid] = $grade_type->name;
+  }
+
+  $tanev_felev_term = taxonomy_vocabulary_machine_name_load('tanev_felev');
+  $tanev_felev = taxonomy_get_tree($tanev_felev_term->vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE);
+
+
+  $tanev_felev_options = array();
+  foreach ($tanev_felev as $tf) {
+    $tanev_felev_options[$tf->tid] = $tf->name;
+  }
+
+
+  $form['subject'] = array(
+    '#type' => 'value',
+    '#value' => $subject_id,
+  );
+
+  $form['#tree'] = TRUE;
+
+  $form['semester_select'] = array(
+    '#type' => 'select',
+    '#title' => t('Semester'),
+    '#options' => $tanev_felev_options,
+    '#default_value' => variable_get('active_semester_id', 0),
+    '#ajax' => array(
+      'callback' => 'endresz_gradebook_select_semester_callback',
+      'wrapper' => 'semester',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),
+  );
+
+
+  $form['semester'] = array(
+    '#type' => 'container',
+    '#prefix' => '<div id="semester">',
+    '#suffix' => '</div>',
+  );
+
+  foreach ($students as $student) {
+
+    $form['semester']['student-' . $student['uid']] = array(
+      '#type' => 'fieldset',
+      '#title' => check_plain(endresz_gardebook_get_full_name($student['uid'])),
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+    );
+
+
+    // Build the fieldset with the proper number of names. We'll use
+    // $form_state['num_names'] to determine the number of textfields to build.
+    if (empty($form_state['semester']['student-' . $student['uid']]['num_names'])) {
+      $form_state['semester']['student-' . $student['uid']]['num_names'] = 1;
+    }
+
+    $form['semester']['student-' . $student['uid']]['grades'] = array(
+      '#type' => 'markup',
+      '#markup' => endresz_gardebook_get_gardes($student['uid'], $subject_id, $semester_id),
+    );
+
+    $form['semester']['student-' . $student['uid']]['container'] = array(
+      '#type' => 'container',
+      '#prefix' => '<div id="add-more-' . $student['uid'] . '">',
+      '#suffix' => '</div>',
+    );
+
+
+    for ($i = 0; $i < $form_state['semester']['student-' . $student['uid']]['num_names']; $i++) {
+
+      $form['semester']['student-' . $student['uid']]['container'][$i]['uid'] = array(
+        '#type' => 'value',
+        '#value' => $student['uid'],
+      );
+      $form['semester']['student-' . $student['uid']]['container'][$i]['grade'] = array(
+        '#type' => 'select',
+        '#options' => $grades_list,
+      );
+      $form['semester']['student-' . $student['uid']]['container'][$i]['subject'] = array(
+        '#type' => 'textfield',
+        '#size' => 20,
+        '#maxlength' => 128,
+      );
+      $form['semester']['student-' . $student['uid']]['container'][$i]['type'] = array(
+        '#type' => 'select',
+        '#options' => $grade_type_options,
+      );
+      $form['semester']['student-' . $student['uid']]['container'][$i]['created'] = array(
+        '#type' => 'date_popup',
+        '#date_format' => 'm/d/Y',
+      );
+    }
+
+    $form['semester']['student-' . $student['uid']]['add-more'] = array(
+      '#type' => 'submit',
+      '#value' => t('Add more'),
+      '#submit' => array('endresz_gradebook_add_more_add_one'),
+      '#name' => 'add-more-' . $student['uid'],
+      '#attributes' => array(
+        'ref' => $student['uid'],
+      ),
+      '#ajax' => array(
+        'callback' => 'endresz_gradebook_add_more',
+        'wrapper' => 'add-more-' . $student['uid'],
+        'method' => 'replace',
+        'effect' => 'fade',
+      ),
+    );
+  }
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Upload grades'),
+  );
+
+  return $form;
+}
+
+
+/**
+ * Submit callback for Foo form.
+ */
+
+function endresz_gradebook_subject_grades_form_submit(&$form, &$form_state)
+{
+  $count = 0;
+  $subject = $form_state['values']['subject'];
+  foreach ($form_state['values']['semester'] as $key => $values) {
+    if (is_array($values['container'])) {
+      foreach ($values['container'] as $value) {
+        if ($value['grade'] != 0) {
+          $value['tid'] = $subject;
+          endresz_gradebook_insert_grade($value);
+          $count++;
+        }
+      }
+    }
+  }
+  drupal_set_message(t('You uploaded %num grades', array('%num' => $count)));
+}
+
+/**
+ * @param $roles
+ */
+function endresz_gardebook_content_access($roles)
+{
+  global $user;
+  foreach ($roles as $role) {
+    if (in_array($role, $user->roles)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @return bool|mixed|string
+ */
+function endresz_gardebook_get_children()
+{
+  global $user;
+  if (!endresz_gardebook_content_access(array('szülők'))) {
+    return false;
+  }
+
+  $query = new EntityFieldQuery;
+
+  $results = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'szulo')
+    ->propertyCondition('uid', $user->uid)
+    ->propertyCondition('type', 'szulo')
+    ->execute();
+
+  $children = array();
+  foreach ($results['profile2'] as $key => $result) {
+    $parent_profile = profile2_load($key);
+    $parent = entity_metadata_wrapper('profile2', $parent_profile);
+    foreach ($parent->field_gyermek->value() as $value) {
+      $children[] = l(endresz_gardebook_get_full_name($value->uid), 'gradebook/student/' . $value->uid . '/grades');
+    }
+  }
+  return theme('item_list', array('items' => $children));
+}
+
+/**
+ * @param $uid - student id
+ * @return bool return true if the student is the logged in user child
+ */
+function endresz_gradebook_is_parent($uid)
+{
+  global $user;
+
+  $query = new EntityFieldQuery;
+
+  $results = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'szulo')
+    ->propertyCondition('uid', $user->uid)
+    ->propertyCondition('type', 'szulo')
+    ->execute();
+  $children = array();
+  foreach ($results['profile2'] as $key => $result) {
+    $parent_profile = profile2_load($key);
+    $parent = entity_metadata_wrapper('profile2', $parent_profile);
+    foreach ($parent->field_gyermek->value() as $value) {
+      $children[] = $value->uid;
+    }
+  }
+
+  if (in_array($uid, $children)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * @return bool
+ */
+function endresz_gradebook_student_gardes_access()
+{
+  global $user;
+
+  if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+    return TRUE;
+  }
+
+  if (in_array('szülők', $user->roles)) {
+    return endresz_gradebook_is_parent(arg(2));
+  }
+  return FALSE;
+}
+
+/**
+ * @return bool
+ */
+function endresz_gradebook_student_gardes_delete()
+{
+  global $user;
+  if (in_array('tanárok', $user->roles) || in_array('administrator', $user->roles)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+
+function endresz_gardebook_get_gradebooks() {
+  global $user;
+  $output = '';
+
+  $query = new EntityFieldQuery;
+
+  $results = $query
+    ->entityCondition('entity_type', 'profile2')
+    ->entityCondition('bundle', 'tanar')
+    ->propertyCondition('uid', $user->uid)
+    ->propertyCondition('type', 'tanar')
+    ->execute();
+  if (isset($results['profile2'])) {
+    foreach ($results['profile2'] as $key => $result) {
+      $teacher_profile = profile2_load($key);
+      $teacher = entity_metadata_wrapper('profile2', $teacher_profile);
+      if ($teacher->field_osztalyfonok->value() != null) {
+        $teacher_class = taxonomy_term_load($teacher->field_osztalyfonok->tid->value());
+        $output .=  l($teacher_class->name, 'gradebook/class/' . $teacher_class->tid);
+      }
+
+      $items = array();
+      if ($teacher->field_tanitott_targyak->value() != null) {
+        foreach ($teacher->field_tanitott_targyak->value() as $key => $value) {
+          $class = taxonomy_term_load($value->field_osztaly['und'][0]['tid']);
+          $subject = taxonomy_term_load($value->field_tantargy['und'][0]['tid']);
+          $items[] = l($class->name . ': ' .  $subject->name, 'gradebook/subject/' . $class->tid . '/' . $subject->tid);
+        }
+        $output .= theme('item_list', array('items' => $items, 'title' => t('Subject gradebooks')));
+      }
+    }
+  }
+  return $output;
+}
+
+
+function endresz_gradebook_send_grades($class_id, $student_id) {
+  global $user;
+  $body = '';
+  $semester_id = isset($form_state['values']['semester_select']) ? $form_state['values']['semester_select'] : variable_get('active_semester_id', 0);
+  $semester = taxonomy_term_load($semester_id);
+  
+  $term_wrapper = entity_metadata_wrapper('taxonomy_term', $class_id);
+  $name = endresz_gardebook_get_full_name($student_id);
+
+  //load student profile
+  $user_profile = profile2_load_by_user($student_id, $type_name = NULL);
+
+  
+  $subject = $name . ' jegyei';
+  $body .= '<p>' . $semester->name . '</p>';
+  
+  foreach ($term_wrapper->field_tantargyak->value() as $targy) {
+    $body .= '<h3>' . $targy->name . '</h3>';
+    $body .= endresz_gardebook_get_gardes($student_id, $targy->tid, $semester_id);
+  }
+  
+  $insert = db_insert('endresz_grades_message')
+    ->fields(array(
+      'student_id' => $student_id,
+      'sending_date' => REQUEST_TIME
+    ))
+    ->execute();  
+  
+  
+  $mailto = 'minarikede@gmail.com';  
+  $mailfrom = $user->mail;
+  $params['subject'] = $subject;
+  $params['body'] = $body;
+  if (drupal_mail('endresz_gradebook', 'gradebook_grades', $mailto, language_default(), $params, $mailfrom, TRUE)) {
+    drupal_set_message(t('The grades were sent successfully!!!'));
+  }
+  else {
+    drupal_set_message(t('<font color="red">Error occured while sending your mail!!!</font>'));
+  }
+
+  drupal_goto('gradebook/class/' . $class_id);
+  return $output;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function endresz_gradebook_menu_alter(&$items) {
+  //dpm($items);
+}
+
+
+/**
+ * Implements hook_mail().
+ */
+function endresz_gradebook_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'gradebook_notice':
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['body'];
+    break;
+    case 'gradebook_grades':
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['body'];
+    break;
+  }
+}

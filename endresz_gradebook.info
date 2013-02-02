@@ -1,0 +1,4 @@
+name = Endresz gradebook
+description = Endresz gradebook
+core = 7.x
+php = 5.2
